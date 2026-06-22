@@ -10,16 +10,6 @@ const CAT_LABELS = { work:"Work", health:"Health & fitness", personal:"Personal"
 const BAR_COLORS = ["#7F77DD","#1D9E75","#D85A30","#378ADD"];
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
-// Helper — add this ABOVE the App() function
-function isWeekPerfect(dayDataMap, year, month, sundayDate) {
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(year, month, sundayDate - i);
-    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    const data = dayDataMap[key];
-    if (!data || data.done < data.total) return false;
-  }
-  return true;
-}
 
 export default function App() {
   const [user, setUser] = useState(null);
