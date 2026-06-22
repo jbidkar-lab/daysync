@@ -10,6 +10,9 @@ const CAT_LABELS = { work:"Work", health:"Health & fitness", personal:"Personal"
 const BAR_COLORS = ["#7F77DD","#1D9E75","#D85A30","#378ADD"];
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
+// Small icons
+const CATERPILLAR = "🐛";
+const BUTTERFLY = "🦋";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -104,42 +107,22 @@ export default function App() {
     await updateDoc(ref, { done: !block.done });
     const newBlocks = blocks.map(b => b.id === block.id ? { ...b, done: !b.done } : b);
     const allDone = newBlocks.length > 0 && newBlocks.every(b => b.done);
-    if (!block.done && allDone) showToast("🐾 All tasks done! Cat paw earned!");
-    else if (!block.done) showToast("⭐ +1 star — " + block.title);
-    else showToast("Star removed — " + block.title);
+    if (!block.done && allDone) showToast(`${CATERPILLAR} All tasks done! Caterpillar earned!`);
+    else if (!block.done) showToast(`${CATERPILLAR} +1 caterpillar — ${block.title}`);
+    else showToast(`Caterpillar removed — ${block.title}`);
   }
 
   const myStars = blocks.filter(b => b.done).length;
   const allDone = blocks.length > 0 && blocks.every(b => b.done);
   const today = new Date();
 
-  if (!user) return (
-    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100vh", gap:16, fontFamily:"system-ui,sans-serif" }}>
-      <div style={{ fontSize:40 }}>🐾</div>
-      <h1 style={{ fontSize:24, fontWeight:600, margin:0 }}>DaySync</h1>
-      <p style={{ color:"#888", margin:0 }}>Daily schedule tracker for you and your crew</p>
-      <button onClick={() => signInWithPopup(auth, provider)}
-        style={{ marginTop:8, padding:"12px 28px", borderRadius:10, border:"none", background:"#000", color:"#fff", fontSize:15, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}>
-        Sign in with Google
-      </button>
-    </div>
-  );
-
-  return (
-    <div style={{ display:"flex", height:"100vh", fontFamily:"system-ui,sans-serif", fontSize:14, position:"relative" }}>
-
-      {/* Toast */}
-      {toast && (
-        <div style={{ position:"fixed", bottom:20, left:"50%", transform:"translateX(-50%)", background:"#FAEEDA", color:"#633806", border:"1px solid #FAC775", borderRadius:10, padding:"8px 18px", fontSize:13, fontWeight:500, zIndex:100, whiteSpace:"nowrap" }}>
-          {toast}
-        </div>
-      )}
-
-      {/* Sidebar */}
-      <div style={{ width:200, borderRight:"1px solid #eee", background:"#fafafa", display:"flex", flexDirection:"column", flexShrink:0 }}>
+  // Sidebar component so it can be rendered twice (left + below calendar on touch)
+  function SidebarContent() {
+    return (
+      <div style={{ display:"flex", flexDirection:"column", height:"100%" }}>
         <div style={{ padding:"14px 16px", borderBottom:"1px solid #eee" }}>
-          <div style={{ fontWeight:600, fontSize:15 }}>🐾 DaySync</div>
-          <div style={{ fontSize:11, color:"#aaa", marginTop:2 }}>{user.displayName}</div>
+          <div style={{ fontWeight:600, fontSize:15 }}>🐛 DaySync</div>
+          <div style={{ fontSize:11, color:"#aaa", marginTop:2 }}>{user?.displayName}</div>
         </div>
         <div style={{ padding:"10px 8px", flex:1 }}>
           {[["schedule","📅 My schedule"],["calendar","🗓 Calendar"],["progress","📊 Progress"],["leaderboard","🏆 Leaderboard"]].map(([v,label]) => (
@@ -164,6 +147,69 @@ export default function App() {
           <button onClick={() => signOut(auth)} style={{ marginTop:8, fontSize:11, color:"#bbb", border:"none", background:"none", cursor:"pointer", padding:0 }}>Sign out</button>
         </div>
       </div>
+    );
+  }
+
+  if (!user) return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100vh", gap:16, fontFamily:"system-ui,sans-serif" }}>
+      <div style={{ fontSize:40 }}>🐛</div>
+      <h1 style={{ fontSize:24, fontWeight:600, margin:0 }}>DaySync</h1>
+      <p style={{ color:"#888", margin:0 }}>Daily schedule tracker for you and your crew</p>
+      <button onClick={() => signInWithPopup(auth, provider)}
+        style={{ marginTop:8, padding:"12px 28px", borderRadius:10, border:"none", background:"#000", color:"#fff", fontSize:15, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}>
+        Sign in with Google
+      </button>
+    </div>
+  );
+
+  // -- CALENDAR: prepare mock data and compute weekly caterpillar counts --
+  // This logic mirrors the original mockAllDone/mockStars logic but now counts caterpillars per week.
+  // It computes for the month being displayed which days are "all done" (mockAllDone) and then groups weeks.
+  const firstDayOfMonth = new Date(calYear, calMonth, 1).getDay();
+  const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
+  const mockAllDoneSet = new Set([1,2,5,8,12,16,17,19]); // existing mock positions
+  // Build per-day arrays
+  const dayInfos = Array.from({ length: daysInMonth }).map((_, idx) => {
+    const d = idx + 1;
+    const isToday = d===today.getDate() && calMonth===today.getMonth() && calYear===today.getFullYear();
+    const mockAllDone = mockAllDoneSet.has(d) && calMonth === today.getMonth();
+    const mockStars = mockAllDone ? 5 : ([3,9,15,18].includes(d) ? 3 : 0);
+    return { d, isToday, mockAllDone, mockStars, idx };
+  });
+  // Group into weeks and count caterpillars per week
+  const weeksCount = Math.ceil((firstDayOfMonth + daysInMonth) / 7);
+  const caterpillarCounts = Array(weeksCount).fill(0);
+  dayInfos.forEach((info, i) => {
+    const weekIndex = Math.floor((firstDayOfMonth + i) / 7);
+    if (info.mockAllDone) caterpillarCounts[weekIndex]++;
+  });
+
+  return (
+    <div style={{ display:"flex", height:"100vh", fontFamily:"system-ui,sans-serif", fontSize:14, position:"relative" }}>
+      {/* Inline styles to handle touch behavior:
+          - .left-sidebar is hidden on touch (pointer: coarse)
+          - .sidebar-below appears only on touch and only when view === "calendar"
+      */}
+      <style>{`
+        /* hide the duplicated below-sidebar on wide (non-touch) screens */
+        .sidebar-below { display:none; }
+        /* show left-sidebar by default */
+        .left-sidebar { display:block; width:200px; flex-shrink:0; }
+        /* small tweak for hover elevation for task cards */
+        .block-card { transition: transform .14s ease, box-shadow .14s ease; }
+        .block-card:hover { transform: translateY(-6px); box-shadow: 0 10px 20px rgba(20,20,40,0.06); }
+
+        /* For touch devices (coarse pointers) hide left sidebar and show below version */
+        @media (pointer: coarse) {
+          .left-sidebar { display:none !important; }
+          .sidebar-below { display:block; width:100%; border-top:1px solid #eee; background:#fafafa; padding:12px; }
+        }
+      `}</style>
+
+      {/* Left sidebar for mouse/desktop — hidden on touch by media query */}
+      <div className="left-sidebar" style={{ borderRight:"1px solid #eee", background:"#fafafa", display:"flex", flexDirection:"column" }}>
+        <SidebarContent />
+      </div>
 
       {/* Main */}
       <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", minWidth:0 }}>
@@ -176,11 +222,16 @@ export default function App() {
               { view==="calendar" && "Calendar" }
               { view==="progress" && "Group progress" }
               { view==="leaderboard" && "Leaderboard" }
-              { allDone && <span style={{ marginLeft:8 }}>🐾</span> }
+              { allDone && <span style={{ marginLeft:8 }}>{CATERPILLAR}</span> }
             </div>
             <div style={{ fontSize:11, color:"#aaa" }}>{today.toLocaleDateString("en-GB", { weekday:"long", day:"numeric", month:"long" })}</div>
           </div>
-          <div style={{ background:"#FAEEDA", color:"#633806", padding:"5px 12px", borderRadius:8, fontSize:13, fontWeight:500 }}>⭐ {myStars} pts</div>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ background:"#FAEEDA", color:"#633806", padding:"5px 12px", borderRadius:8, fontSize:13, fontWeight:500 }}>⭐ {myStars} pts</div>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <img src={user.photoURL} alt="" style={{ width:36, height:36, borderRadius:"50%", objectFit:"cover" }} />
+            </div>
+          </div>
         </div>
 
         {/* Content */}
@@ -202,13 +253,13 @@ export default function App() {
               </div>
               {blocks.length === 0 && <div style={{ color:"#bbb", fontSize:13, textAlign:"center", marginTop:40 }}>No blocks yet — type an activity above and press Add</div>}
               {blocks.map(b => (
-                <div key={b.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", border:`1px solid ${b.done ? "#1D9E75" : "#eee"}`, borderRadius:10, marginBottom:6, background: b.done ? "#f0faf6" : "#fff", transition:"all 0.2s" }}>
+                <div key={b.id} className="block-card" style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", border:`1px solid ${b.done ? "#1D9E75" : "#eee"}`, borderRadius:10, marginBottom:6, background: b.done ? "#f0faf6" : "#fff", transition:"all 0.2s" }}>
                   <div style={{ width:3, alignSelf:"stretch", borderRadius:2, flexShrink:0, background: b.category==="work"?"#7F77DD":b.category==="health"?"#1D9E75":b.category==="personal"?"#D85A30":"#378ADD" }} />
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:500, textDecoration: b.done?"line-through":"none", color: b.done?"#aaa":"#000" }}>{b.title}</div>
                     <div style={{ fontSize:11, color:"#aaa", marginTop:1 }}>{b.time} · {CAT_LABELS[b.category]}{b.note ? " · "+b.note : ""}</div>
                   </div>
-                  {b.done && <span style={{ fontSize:14, flexShrink:0 }}>⭐</span>}
+                  {b.done && <span style={{ fontSize:14, flexShrink:0 }}>{CATERPILLAR}</span>}
                   <div onClick={() => toggleDone(b)} style={{ width:22, height:22, borderRadius:"50%", border: b.done?"none":"1.5px solid #ccc", background: b.done?"#1D9E75":"transparent", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:"white", fontSize:12, flexShrink:0 }}>
                     {b.done ? "✓" : ""}
                   </div>
@@ -229,30 +280,34 @@ export default function App() {
                 {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d => (
                   <div key={d} style={{ background:"#fafafa", textAlign:"center", fontSize:10, fontWeight:500, color:"#999", padding:"6px 0" }}>{d}</div>
                 ))}
-                {Array.from({ length: new Date(calYear, calMonth, 1).getDay() }).map((_,i) => (
+                {Array.from({ length: firstDayOfMonth }).map((_,i) => (
                   <div key={"pad"+i} style={{ background:"#fafafa", minHeight:68 }} />
                 ))}
-                {Array.from({ length: new Date(calYear, calMonth+1, 0).getDate() }).map((_,i) => {
-                  const d = i+1;
-                  const isToday = d===today.getDate() && calMonth===today.getMonth() && calYear===today.getFullYear();
-                  const isPast = new Date(calYear, calMonth, d) <= today;
-                  // In production this comes from Firestore per-day completion data
-                  const mockAllDone = [1,2,5,8,12,16,17,19].includes(d) && calMonth === today.getMonth();
-                  const mockStars = mockAllDone ? 5 : [3,9,15,18].includes(d) ? 3 : 0;
+                {dayInfos.map((info, i) => {
+                  const d = info.d;
+                  const isToday = info.isToday;
+                  const weekIndex = Math.floor((firstDayOfMonth + i) / 7);
+                  const isSunday = new Date(calYear, calMonth, d).getDay() === 0;
+                  const weekCaterpillars = caterpillarCounts[weekIndex] || 0;
+                  const showButterfly = isSunday && weekCaterpillars >= 6;
                   return (
                     <div key={d} style={{ background:"#fff", minHeight:68, padding:6, position:"relative", outline: isToday?"2px solid #000":"none", outlineOffset:"-2px" }}>
                       <div style={{ fontSize:11, fontWeight: isToday?600:400, width:20, height:20, borderRadius:"50%", background: isToday?"#000":"transparent", color: isToday?"#fff":"#000", display:"flex", alignItems:"center", justifyContent:"center" }}>{d}</div>
-                      {isPast && mockStars > 0 && !mockAllDone && (
-                        <div style={{ fontSize:10, color:"#BA7517", marginTop:2 }}>⭐{mockStars}</div>
+                      {/* If showButterfly -> show butterfly; else if mockAllDone -> show caterpillar or stars */}
+                      {showButterfly && (
+                        <div style={{ position:"absolute", bottom:4, right:5, fontSize:20, lineHeight:1 }} title="Butterfly reward!">{BUTTERFLY}</div>
                       )}
-                      {mockAllDone && (
-                        <div style={{ position:"absolute", bottom:4, right:5, fontSize:20, lineHeight:1 }} title="All tasks completed!">🐾</div>
+                      {!showButterfly && info.mockAllDone && (
+                        <div style={{ position:"absolute", bottom:6, right:6, fontSize:16, lineHeight:1 }} title="All tasks completed!">{CATERPILLAR}</div>
+                      )}
+                      {!showButterfly && !info.mockAllDone && info.mockStars > 0 && (
+                        <div style={{ fontSize:10, color:"#BA7517", marginTop:2 }}>⭐{info.mockStars}</div>
                       )}
                     </div>
                   );
                 })}
               </div>
-              <p style={{ fontSize:11, color:"#aaa", textAlign:"center", marginTop:10 }}>🐾 appears when every task for that day is completed</p>
+              <p style={{ fontSize:11, color:"#aaa", textAlign:"center", marginTop:10 }}>{CATERPILLAR} appears when every task for that day is completed — collect 6 caterpillars in a week to get a {BUTTERFLY} on Sunday</p>
             </div>
           )}
 
@@ -314,7 +369,22 @@ export default function App() {
           )}
 
         </div>
+
+        {/* On touch devices this below-area will appear (media query controls visibility).
+            We show the sidebar below the content only when view === "calendar" as requested. */}
+        <div className="sidebar-below">
+          {view === "calendar" && <SidebarContent />}
+        </div>
+
       </div>
+
+      {/* Toast */}
+      {toast && (
+        <div style={{ position:"fixed", bottom:20, left:"50%", transform:"translateX(-50%)", background:"#FAEEDA", color:"#633806", border:"1px solid #FAC775", borderRadius:10, padding:"8px 18px", fontSize:13, fontWeight:500, zIndex:100, whiteSpace:"nowrap" }}>
+          {toast}
+        </div>
+      )}
+
     </div>
   );
 }
