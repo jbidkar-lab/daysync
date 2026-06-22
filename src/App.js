@@ -27,6 +27,14 @@ export default function App() {
   const [calYear, setCalYear] = useState(new Date().getFullYear());
   const [memberBlocks, setMemberBlocks] = useState({});
   const [toast, setToast] = useState("");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Selected date (user can navigate back/forward). Default = today.
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date();
+    d.setHours(0,0,0,0);
+    return d;
+  });
 
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
@@ -51,24 +59,26 @@ export default function App() {
     });
   }, [user]);
 
+  // Use selectedDate to load blocks for that date
   useEffect(() => {
-    if (!user) return;
-    const today = new Date().toISOString().split("T")[0];
+    if (!user || !selectedDate) return;
+    const dateStr = selectedDate.toISOString().split("T")[0];
     const q = query(
-      collection(db, "users", user.uid, "days", today, "blocks"),
+      collection(db, "users", user.uid, "days", dateStr, "blocks"),
       orderBy("createdAt")
     );
     return onSnapshot(q, snap => {
       setBlocks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-  }, [user]);
+  }, [user, selectedDate]);
 
+  // memberBlocks per selectedDate
   useEffect(() => {
-    if (!user || members.length === 0) return;
-    const today = new Date().toISOString().split("T")[0];
+    if (!user || members.length === 0 || !selectedDate) return;
+    const dateStr = selectedDate.toISOString().split("T")[0];
     const unsubs = members.map(m => {
       const q = query(
-        collection(db, "users", m.uid, "days", today, "blocks"),
+        collection(db, "users", m.uid, "days", dateStr, "blocks"),
         orderBy("createdAt")
       );
       return onSnapshot(q, snap => {
@@ -79,7 +89,7 @@ export default function App() {
       });
     });
     return () => unsubs.forEach(u => u());
-  }, [user, members]);
+  }, [user, members, selectedDate]);
 
   function showToast(msg) {
     setToast(msg);
@@ -87,9 +97,9 @@ export default function App() {
   }
 
   async function addBlock() {
-    if (!newTitle.trim()) return;
-    const today = new Date().toISOString().split("T")[0];
-    const ref = doc(collection(db, "users", user.uid, "days", today, "blocks"));
+    if (!newTitle.trim() || !user) return;
+    const dateStr = selectedDate.toISOString().split("T")[0];
+    const ref = doc(collection(db, "users", user.uid, "days", dateStr, "blocks"));
     await setDoc(ref, {
       title: newTitle,
       time: newTime || "TBD",
@@ -102,8 +112,9 @@ export default function App() {
   }
 
   async function toggleDone(block) {
-    const today = new Date().toISOString().split("T")[0];
-    const ref = doc(db, "users", user.uid, "days", today, "blocks", block.id);
+    if (!user) return;
+    const dateStr = selectedDate.toISOString().split("T")[0];
+    const ref = doc(db, "users", user.uid, "days", dateStr, "blocks", block.id);
     await updateDoc(ref, { done: !block.done });
     const newBlocks = blocks.map(b => b.id === block.id ? { ...b, done: !b.done } : b);
     const allDone = newBlocks.length > 0 && newBlocks.every(b => b.done);
@@ -114,19 +125,34 @@ export default function App() {
 
   const myStars = blocks.filter(b => b.done).length;
   const allDone = blocks.length > 0 && blocks.every(b => b.done);
-  const today = new Date();
 
-  // Sidebar component so it can be rendered twice (left + below calendar on touch)
+  // Helper to change selected date
+  function changeSelectedDateBy(days) {
+    setSelectedDate(prev => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() + days);
+      d.setHours(0,0,0,0);
+      return d;
+    });
+  }
+
+  function goToday() {
+    const d = new Date();
+    d.setHours(0,0,0,0);
+    setSelectedDate(d);
+  }
+
+  // Sidebar component so it can be rendered in drawer and below calendar
   function SidebarContent() {
     return (
       <div style={{ display:"flex", flexDirection:"column", height:"100%" }}>
         <div style={{ padding:"14px 16px", borderBottom:"1px solid #eee" }}>
-          <div style={{ fontWeight:600, fontSize:15 }}>🐛 DaySync</div>
+          <div style={{ fontWeight:600, fontSize:15 }}>{CATERPILLAR} DaySync</div>
           <div style={{ fontSize:11, color:"#aaa", marginTop:2 }}>{user?.displayName}</div>
         </div>
         <div style={{ padding:"10px 8px", flex:1 }}>
           {[["schedule","📅 My schedule"],["calendar","🗓 Calendar"],["progress","📊 Progress"],["leaderboard","🏆 Leaderboard"]].map(([v,label]) => (
-            <div key={v} onClick={() => setView(v)} style={{ padding:"8px 10px", borderRadius:8, cursor:"pointer", background: view===v ? "#fff" : "transparent", fontWeight: view===v ? 500 : 400, fontSize:13, color: view===v ? "#000" : "#666", marginBottom:2, border: view===v ? "0.5px solid #eee" : "none" }}>
+            <div key={v} onClick={() => { setView(v); setMobileMenuOpen(false); }} style={{ padding:"8px 10px", borderRadius:8, cursor:"pointer", background: view===v ? "#fff" : "transparent", fontWeight: view===v ? 500 : 400, fontSize:13, color: view===v ? "#000" : "#666", marginBottom:2, border: view===v ? "0.5px solid #eee" : "none" }}>
               {label}
             </div>
           ))}
@@ -150,9 +176,32 @@ export default function App() {
     );
   }
 
+  // Keep an actual "now" for highlighting the real current day in the calendar
+  const now = new Date();
+  now.setHours(0,0,0,0);
+
+  // -- CALENDAR: prepare mock data and compute weekly caterpillar counts --
+  const firstDayOfMonth = new Date(calYear, calMonth, 1).getDay();
+  const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
+  const mockAllDoneSet = new Set([1,2,5,8,12,16,17,19]); // existing mock positions
+  const dayInfos = Array.from({ length: daysInMonth }).map((_, idx) => {
+    const d = idx + 1;
+    const isToday = d===now.getDate() && calMonth===now.getMonth() && calYear===now.getFullYear();
+    const mockAllDone = mockAllDoneSet.has(d) && calMonth === now.getMonth();
+    const mockStars = mockAllDone ? 5 : ([3,9,15,18].includes(d) ? 3 : 0);
+    return { d, isToday, mockAllDone, mockStars, idx };
+  });
+  const weeksCount = Math.ceil((firstDayOfMonth + daysInMonth) / 7);
+  const caterpillarCounts = Array(weeksCount).fill(0);
+  dayInfos.forEach((info, i) => {
+    const weekIndex = Math.floor((firstDayOfMonth + i) / 7);
+    if (info.mockAllDone) caterpillarCounts[weekIndex]++;
+  });
+
+  // If user not signed in: sign-in screen
   if (!user) return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100vh", gap:16, fontFamily:"system-ui,sans-serif" }}>
-      <div style={{ fontSize:40 }}>🐛</div>
+      <div style={{ fontSize:40 }}>{CATERPILLAR}</div>
       <h1 style={{ fontSize:24, fontWeight:600, margin:0 }}>DaySync</h1>
       <p style={{ color:"#888", margin:0 }}>Daily schedule tracker for you and your crew</p>
       <button onClick={() => signInWithPopup(auth, provider)}
@@ -162,51 +211,32 @@ export default function App() {
     </div>
   );
 
-  // -- CALENDAR: prepare mock data and compute weekly caterpillar counts --
-  // This logic mirrors the original mockAllDone/mockStars logic but now counts caterpillars per week.
-  // It computes for the month being displayed which days are "all done" (mockAllDone) and then groups weeks.
-  const firstDayOfMonth = new Date(calYear, calMonth, 1).getDay();
-  const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
-  const mockAllDoneSet = new Set([1,2,5,8,12,16,17,19]); // existing mock positions
-  // Build per-day arrays
-  const dayInfos = Array.from({ length: daysInMonth }).map((_, idx) => {
-    const d = idx + 1;
-    const isToday = d===today.getDate() && calMonth===today.getMonth() && calYear===today.getFullYear();
-    const mockAllDone = mockAllDoneSet.has(d) && calMonth === today.getMonth();
-    const mockStars = mockAllDone ? 5 : ([3,9,15,18].includes(d) ? 3 : 0);
-    return { d, isToday, mockAllDone, mockStars, idx };
-  });
-  // Group into weeks and count caterpillars per week
-  const weeksCount = Math.ceil((firstDayOfMonth + daysInMonth) / 7);
-  const caterpillarCounts = Array(weeksCount).fill(0);
-  dayInfos.forEach((info, i) => {
-    const weekIndex = Math.floor((firstDayOfMonth + i) / 7);
-    if (info.mockAllDone) caterpillarCounts[weekIndex]++;
-  });
-
   return (
     <div style={{ display:"flex", height:"100vh", fontFamily:"system-ui,sans-serif", fontSize:14, position:"relative" }}>
-      {/* Inline styles to handle touch behavior:
-          - .left-sidebar is hidden on touch (pointer: coarse)
-          - .sidebar-below appears only on touch and only when view === "calendar"
-      */}
       <style>{`
-        /* hide the duplicated below-sidebar on wide (non-touch) screens */
+        /* we now use the same behavior on phone and desktop:
+           - left sidebar hidden by default
+           - use the menu button to open the drawer
+           - show sidebar below calendar when view === "calendar"
+        */
         .sidebar-below { display:none; }
-        /* show left-sidebar by default */
-        .left-sidebar { display:block; width:200px; flex-shrink:0; }
-        /* small tweak for hover elevation for task cards */
+        .left-sidebar { display:none; } /* hide left sidebar everywhere */
         .block-card { transition: transform .14s ease, box-shadow .14s ease; }
         .block-card:hover { transform: translateY(-6px); box-shadow: 0 10px 20px rgba(20,20,40,0.06); }
 
-        /* For touch devices (coarse pointers) hide left sidebar and show below version */
-        @media (pointer: coarse) {
-          .left-sidebar { display:none !important; }
-          .sidebar-below { display:block; width:100%; border-top:1px solid #eee; background:#fafafa; padding:12px; }
-        }
+        /* menu button and drawer are always available */
+        .mobile-menu-button { display:inline-flex; align-items:center; justify-content:center; width:40px; height:36px; border-radius:8px; border:none; background:transparent; font-size:20px; cursor:pointer; margin-right:8px; }
+        .mobile-menu-button:active { transform: translateY(1px); }
+
+        .mobile-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.28); z-index:200; display:flex; align-items:flex-start; justify-content:flex-start; padding-top:56px; }
+        .mobile-drawer { width:320px; max-width:86%; height:100%; background:#fff; box-shadow:0 20px 40px rgba(20,20,40,0.12); border-right:1px solid #eee; overflow-y:auto; padding:12px; }
+        .mobile-drawer .close-btn { display:block; margin:8px 0 12px; padding:8px 12px; border-radius:8px; border:none; background:#f3f3f3; cursor:pointer; }
+
+        /* show below-sidebar area when viewing calendar */
+        .sidebar-below { display:block; width:100%; border-top:1px solid #eee; background:#fafafa; padding:12px; }
       `}</style>
 
-      {/* Left sidebar for mouse/desktop — hidden on touch by media query */}
+      {/* Left sidebar (hidden by design now) */}
       <div className="left-sidebar" style={{ borderRight:"1px solid #eee", background:"#fafafa", display:"flex", flexDirection:"column" }}>
         <SidebarContent />
       </div>
@@ -216,17 +246,33 @@ export default function App() {
 
         {/* Topbar */}
         <div style={{ padding:"12px 20px", borderBottom:"1px solid #eee", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <div>
-            <div style={{ fontWeight:500, fontSize:15 }}>
-              { view==="schedule" && "My schedule" }
-              { view==="calendar" && "Calendar" }
-              { view==="progress" && "Group progress" }
-              { view==="leaderboard" && "Leaderboard" }
-              { allDone && <span style={{ marginLeft:8 }}>{CATERPILLAR}</span> }
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            {/* Menu button (always visible) */}
+            <button className="mobile-menu-button" onClick={() => setMobileMenuOpen(true)} aria-label="Open menu">☰</button>
+
+            <div>
+              <div style={{ fontWeight:500, fontSize:15 }}>
+                { view==="schedule" && "My schedule" }
+                { view==="calendar" && "Calendar" }
+                { view==="progress" && "Group progress" }
+                { view==="leaderboard" && "Leaderboard" }
+                { allDone && <span style={{ marginLeft:8 }}>{CATERPILLAR}</span> }
+              </div>
+              <div style={{ fontSize:11, color:"#aaa" }}>
+                {/* show the selected date in the topbar */}
+                {selectedDate.toLocaleDateString("en-GB", { weekday:"long", day:"numeric", month:"long" })}
+              </div>
             </div>
-            <div style={{ fontSize:11, color:"#aaa" }}>{today.toLocaleDateString("en-GB", { weekday:"long", day:"numeric", month:"long" })}</div>
           </div>
+
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            {/* Day navigation controls */}
+            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <button onClick={() => changeSelectedDateBy(-1)} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #ddd", background:"transparent", cursor:"pointer" }}>‹</button>
+              <button onClick={goToday} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #ddd", background:"transparent", cursor:"pointer" }}>Today</button>
+              <button onClick={() => changeSelectedDateBy(1)} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #ddd", background:"transparent", cursor:"pointer" }}>›</button>
+            </div>
+
             <div style={{ background:"#FAEEDA", color:"#633806", padding:"5px 12px", borderRadius:8, fontSize:13, fontWeight:500 }}>⭐ {myStars} pts</div>
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               <img src={user.photoURL} alt="" style={{ width:36, height:36, borderRadius:"50%", objectFit:"cover" }} />
@@ -293,7 +339,6 @@ export default function App() {
                   return (
                     <div key={d} style={{ background:"#fff", minHeight:68, padding:6, position:"relative", outline: isToday?"2px solid #000":"none", outlineOffset:"-2px" }}>
                       <div style={{ fontSize:11, fontWeight: isToday?600:400, width:20, height:20, borderRadius:"50%", background: isToday?"#000":"transparent", color: isToday?"#fff":"#000", display:"flex", alignItems:"center", justifyContent:"center" }}>{d}</div>
-                      {/* If showButterfly -> show butterfly; else if mockAllDone -> show caterpillar or stars */}
                       {showButterfly && (
                         <div style={{ position:"absolute", bottom:4, right:5, fontSize:20, lineHeight:1 }} title="Butterfly reward!">{BUTTERFLY}</div>
                       )}
@@ -370,13 +415,22 @@ export default function App() {
 
         </div>
 
-        {/* On touch devices this below-area will appear (media query controls visibility).
-            We show the sidebar below the content only when view === "calendar" as requested. */}
+        {/* Show sidebar below calendar view (as requested) */}
         <div className="sidebar-below">
           {view === "calendar" && <SidebarContent />}
         </div>
 
       </div>
+
+      {/* Drawer overlay (menu) */}
+      {mobileMenuOpen && (
+        <div className="mobile-overlay" onClick={() => setMobileMenuOpen(false)}>
+          <div className="mobile-drawer" onClick={(e) => e.stopPropagation()}>
+            <button className="close-btn" onClick={() => setMobileMenuOpen(false)}>Close</button>
+            <SidebarContent />
+          </div>
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (
