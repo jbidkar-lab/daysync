@@ -246,13 +246,9 @@ export default function App() {
   const firstDayOfMonth = new Date(calYear, calMonth, 1).getDay();
   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
 
-  const weekStart = startOfWeek(selectedDate);
-  const weekEnd = addDays(weekStart, 6);
-  const monthStart = startOfMonth(selectedDate);
-  const monthEnd = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0);
-
-  function scoreForRange(blockList, range) {
-    if (!blockList.length) return 0;
+  // Simplified scoring function: accept block list and return percentage completed (0-100)
+  function scoreForRange(blockList) {
+    if (!blockList || !blockList.length) return 0;
     const completed = blockList.filter(b => b.done).length;
     return Math.round((completed / blockList.length) * 100);
   }
@@ -260,9 +256,9 @@ export default function App() {
   function getRangeForMember(m) {
     const mb = memberBlocks[m.uid] || [];
     return {
-      daily: scoreForRange(mb, "daily"),
-      weekly: scoreForRange(mb, "weekly"),
-      monthly: scoreForRange(mb, "monthly"),
+      daily: scoreForRange(mb),
+      weekly: scoreForRange(mb),
+      monthly: scoreForRange(mb),
       totalDone: mb.filter(b => b.done).length,
       totalTasks: mb.length,
     };
